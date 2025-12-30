@@ -10,7 +10,10 @@ import httpx
 
 from listmonk import models, urls
 
-__version__ = version('listmonk')
+try:
+    __version__ = version('listmonk')
+except Exception:
+    __version__ = '0.0.0'
 
 from listmonk.errors import ListmonkFileNotFoundError, OperationNotAllowedError, ValidationError
 from listmonk.models import SubscriberStatuses
@@ -884,8 +887,174 @@ def test_user_pw_on_server(timeout_config: Optional[httpx.Timeout] = None) -> bo
 
         return True
     except Exception:
-        return False
+        return False  # Or maybe raise?
 
+
+# endregion
+
+# region def import_subscribers(...)
+
+
+def import_subscribers(
+    file_path: Path,
+    mode: str = 'subscribe',
+    delim: str = ',',
+    lists: Optional[list[int]] = None,
+    overwrite: bool = True,
+    timeout_config: Optional[httpx.Timeout] = None,
+) -> bool:
+    """
+    Bulk import subscribers from a CSV file.
+    Args:
+        file_path: Path to the CSV file to import.
+        mode: 'subscribe' or 'blocklist'. Default is 'subscribe'.
+        delim: CSV delimiter character. Default is ','.
+        lists: List to IDs to add subscribers to.
+        overwrite: Overwrite existing subscribers. Default is True.
+        timeout_config: Optional timeout configuration. Default is 10 seconds.
+    Returns: True if the import was started successfully.
+    """
+    global core_headers
+    timeout_config = timeout_config or httpx.Timeout(timeout=10)
+    validate_state(url=True)
+
+    if not file_path.exists() or not file_path.is_file():
+        raise ListmonkFileNotFoundError(f'File {file_path} does not exist')
+
+    params = {
+        'mode': mode,
+        'delim': delim,
+        'lists': lists or [],
+        'overwrite': overwrite,
+    }
+
+    url = f'{url_base}{urls.import_subscribers}'
+    
+    # Multipart upload with JSON params
+    files = {
+        'file': (file_path.name, open(file_path, 'rb')),
+    }
+    
+    # We need to send params as a JSON string in the 'params' field (based on Listmonk API)
+    # actually, looking at the docs, it seems it sends "params" as a form field which contains the JSON
+    data = {
+        'params': json.dumps(params)
+    }
+
+    # For multipart/form-data, we let httpx handle the Content-Type header
+    headers = core_headers.copy()
+    headers.pop('Content-Type', None)
+
+    resp = httpx.post(
+        url,
+        auth=httpx.BasicAuth(username or '', password or ''),
+        data=data,
+        files=files,
+        headers=headers,
+        follow_redirects=True,
+        timeout=timeout_config,
+    )
+    
+    raw_data = _validate_and_parse_json_response(resp)
+    return bool(raw_data.get('data'))
+
+
+# endregion
+
+# region def get_import_status() -> Optional[models.ImportStatus]
+
+
+def get_import_status(timeout_config: Optional[httpx.Timeout] = None) -> Optional[models.ImportStatus]:
+    """
+    Get the status of the current or last import.
+    Args:
+        timeout_config: Optional timeout configuration.
+    Returns: ImportStatus object or None.
+    """
+    global core_headers
+    timeout_config = timeout_config or httpx.Timeout(timeout=10)
+    validate_state(url=True)
+
+    url = f'{url_base}{urls.import_subscribers}'
+    
+    resp = httpx.get(
+        url,
+        auth=httpx.BasicAuth(username or '', password or ''),
+        headers=core_headers,
+        follow_redirects=True,
+        timeout=timeout_config,
+    )
+
+    raw_data = _validate_and_parse_json_response(resp)
+    data = raw_data.get('data')
+    if not data:
+        return None
+        
+    return models.ImportStatus(**data)
+
+
+# endregion
+
+# region def get_import_logs() -> str
+
+
+def get_import_logs(timeout_config: Optional[httpx.Timeout] = None) -> str:
+    """
+    Get the logs of the import process.
+    Args:
+        timeout_config: Optional timeout configuration.
+    Returns: The log content as a string.
+    """
+    global core_headers
+    timeout_config = timeout_config or httpx.Timeout(timeout=10)
+    validate_state(url=True)
+
+    url = f'{url_base}{urls.import_logs}'
+    
+    resp = httpx.get(
+        url,
+        auth=httpx.BasicAuth(username or '', password or ''),
+        headers=core_headers,
+        follow_redirects=True,
+        timeout=timeout_config,
+    )
+
+    # This endpoint returns JSON wrapping the log string
+    raw_data = _validate_and_parse_json_response(resp)
+    return raw_data.get('data', '')
+
+
+# endregion
+
+# region def stop_import() -> bool
+
+
+def stop_import(timeout_config: Optional[httpx.Timeout] = None) -> bool:
+    """
+    Stop the current import process.
+    Args:
+        timeout_config: Optional timeout configuration.
+    Returns: True if successful.
+    """
+    global core_headers
+    timeout_config = timeout_config or httpx.Timeout(timeout=10)
+    validate_state(url=True)
+
+    url = f'{url_base}{urls.import_subscribers}'
+    
+    resp = httpx.delete(
+        url,
+        auth=httpx.BasicAuth(username or '', password or ''),
+        headers=core_headers,
+        follow_redirects=True,
+        timeout=timeout_config,
+    )
+
+    raw_data = _validate_and_parse_json_response(resp)
+    return bool(raw_data.get('data'))
+
+
+# endregion
 
 # region def campaigns() -> list[models.Campaign]
 

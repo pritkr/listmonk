@@ -1,3 +1,4 @@
+from __future__ import annotations
 import datetime
 from typing import Any, Optional
 
@@ -155,5 +156,14 @@ class CreateTemplateModel(BaseModel):
     is_default: Optional[bool] = False
 
 
+
 class TemplatePreview(BaseModel):
     preview: Optional[str] = None
+
+
+class ImportStatus(BaseModel):
+    name: Optional[str] = None
+    total: int
+    imported: int
+    status: Optional[str] = None
+
